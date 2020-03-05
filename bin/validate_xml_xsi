@@ -1,0 +1,15 @@
+#!/usr/bin/env ruby
+require 'validate_xml_xsi'
+
+while ARGV.size > 0
+  fname = ARGV.shift
+  errors = XML::Schema::validate(fname)
+  if errors.empty?
+    puts "XML Schema check complete - NO ERRORS!"
+  else
+    puts "XML SCHEMA ERRORS FOUND:"
+    errors.each do |err|
+      puts err.description
+    end
+  end
+end
