@@ -2,7 +2,7 @@
 
 This gem validates XML against it's xsi using the xsi:schemaLocation elements to define the location of XSD documents.
 
-It does this by first parsing the XML and searching for xsi:schemaLocation elements and then creating an XSD document that imports the XSD's identified in the XML.
+It does this by first parsing the XML and searching for xsi:schemaLocation elements and then creating a schema document that imports the XSD's identified in the XML.
 
 It then validates the document against that schema and outputs any error messages.
 
