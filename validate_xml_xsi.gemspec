@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name          = "validate_xml_xsi"
-  spec.version       = "0.1.2"
+  spec.version       = "0.1.3"
   spec.authors       = ["David Hansen"]
   spec.email         = ["david@hansen4.net"]
 
@@ -25,5 +25,5 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "bundler", "~> 2.1"
   spec.add_development_dependency "rake", "~> 13.0"
 
-  spec.add_dependency "nokogiri", "~> 1.12.5"
+  spec.add_dependency "nokogiri", ">= 1.13.2"
 end
