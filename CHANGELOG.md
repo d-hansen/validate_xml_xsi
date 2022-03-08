@@ -1,3 +1,7 @@
+## v0.2.0
+
+* Change namespace to XML_XSI and rename/promote Validation::Error to Schema::ValidationError < StandardError.
+
 ## v0.1.4
 
 * Change module XML, Validation, & Schema to be classes instead.
