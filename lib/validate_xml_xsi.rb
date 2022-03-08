@@ -1,8 +1,8 @@
 #!/usr/bin/env ruby
 require 'nokogiri'
 
-module XML
-  module Validation
+class XML
+  class Validation
     class Error
       Params = [:type, :file, :line, :column, :message, :err]
       attr_reader *Params, :description
@@ -22,7 +22,7 @@ module XML
     xml_doc
   end
 
-  module Schema
+  class Schema
     def self.validate(xml_doc)
       xml_doc = XML::parse(xml_doc) unless xml_doc.is_a?(Nokogiri::XML::Document)
       errors = []
