@@ -1,3 +1,7 @@
+## v0.2.1
+
+* Update namespace to XML_XSI in bin/validate_xml_xsi utility
+
 ## v0.2.0
 
 * Change namespace to XML_XSI and rename/promote Validation::Error to Schema::ValidationError < StandardError.
