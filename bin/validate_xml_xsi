@@ -3,7 +3,7 @@ require 'validate_xml_xsi'
 
 while ARGV.size > 0
   fname = ARGV.shift
-  errors = XML::Schema::validate(fname)
+  errors = XML_XSI::Schema::validate(fname)
   if errors.empty?
     puts "XML Schema check complete - NO ERRORS!"
   else
