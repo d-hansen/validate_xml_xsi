@@ -1,3 +1,7 @@
+## v0.2.4
+
+* Fix some silly syntax errors
+
 ## v0.2.3
 
 * Rename XML_XSI::Schema::parse_schema to just XML_XSI::Schema::parse

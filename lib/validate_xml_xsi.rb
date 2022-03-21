@@ -25,7 +25,7 @@ class XML_XSI
 
     def self.parse(xml_doc)
       unless xml_doc.is_a?(Nokogiri::XML::Document)
-        raise DocumentError.new("not a Nokogiri::XML::Document (class: #{xml_doc.class.name})!"
+        raise DocumentError.new("not a Nokogiri::XML::Document (class: #{xml_doc.class.name})!")
       end
       ## Build an all-in-one XSD document that imports all of the separate schema locations
       xsd_doc = "<?xml version=\"1.0\"?>\n"
@@ -59,7 +59,7 @@ class XML_XSI
       unless xsd.nil? || xsd.is_a?(Nokogiri::XML::Schema)
         raise DocumentError.new("Invalid XSD - not a Nokogiri::XML::Schema (class: #{xsd.class.name})!")
       end
-      xsd = self.parse_schema(xml_doc) if xsd.nil?
+      xsd = self.parse(xml_doc) if xsd.nil?
       xsd.errors.each do |err|
         err_msg = (/ERROR: /.match(err.message)) ? $' : err.message
         errors << ValidationError.new(:XSD, err.file, err.line, err.column, err_msg, err)
