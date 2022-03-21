@@ -23,7 +23,7 @@ class XML_XSI
       end
     end
 
-    def self.parse_schema(xml_doc)
+    def self.parse(xml_doc)
       unless xml_doc.is_a?(Nokogiri::XML::Document)
         raise DocumentError.new("not a Nokogiri::XML::Document (class: #{xml_doc.class.name})!"
       end

@@ -1,3 +1,7 @@
+## v0.2.3
+
+* Rename XML_XSI::Schema::parse_schema to just XML_XSI::Schema::parse
+
 ## v0.2.2
 
 * Break out parsing of the schema from validation so we can reference the schema if we need to.
