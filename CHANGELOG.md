@@ -1,3 +1,7 @@
+## v0.2.2
+
+* Break out parsing of the schema from validation so we can reference the schema if we need to.
+
 ## v0.2.1
 
 * Update namespace to XML_XSI in bin/validate_xml_xsi utility

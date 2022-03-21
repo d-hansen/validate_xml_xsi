@@ -12,6 +12,7 @@ class XML_XSI
   end
 
   class Schema
+    class DocumentError < StandardError; end
     class ValidationError < StandardError
       Params = [:type, :file, :line, :column, :message, :err]
       attr_reader *Params, :description
@@ -22,9 +23,10 @@ class XML_XSI
       end
     end
 
-    def self.validate(xml_doc)
-      xml_doc = XML_XSI::parse(xml_doc) unless xml_doc.is_a?(Nokogiri::XML::Document)
-      errors = []
+    def self.parse_schema(xml_doc)
+      unless xml_doc.is_a?(Nokogiri::XML::Document)
+        raise DocumentError.new("not a Nokogiri::XML::Document (class: #{xml_doc.class.name})!"
+      end
       ## Build an all-in-one XSD document that imports all of the separate schema locations
       xsd_doc = "<?xml version=\"1.0\"?>\n"
       xsd_doc << "<xsd:schema targetNamespace=\"http://www.w3.orig/XML/1998/namespace\"\n" \
@@ -37,7 +39,7 @@ class XML_XSI
         elem['xsi:schemaLocation'].scan(/(\S+)\s+(\S+)/).each do |ns_set|
           if ns_loc = schemata_by_ns[ns_set.first]
             unless ns_loc.eql?(ns_set.last)
-              error "MISMATCHING XMLNS XSI: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}"
+              raise DocumentError.new("MISMATCHING XMLNS XSI: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
             end
           else
             schemata_by_ns[ns_set.first] = ns_set.last
@@ -48,7 +50,16 @@ class XML_XSI
         xsd_doc << "  <xsd:import namespace=\"#{ns_href}\" schemaLocation=\"#{ns_file}\"/>\n"
       end
       xsd_doc << "</xsd:schema>\n"
-      xsd = Nokogiri::XML.Schema(xsd_doc)
+      Nokogiri::XML::Schema.new(xsd_doc)
+    end
+
+    def self.validate(xml_doc, xsd = nil)
+      xml_doc = XML_XSI::parse(xml_doc) unless xml_doc.is_a?(Nokogiri::XML::Document)
+      errors = []
+      unless xsd.nil? || xsd.is_a?(Nokogiri::XML::Schema)
+        raise DocumentError.new("Invalid XSD - not a Nokogiri::XML::Schema (class: #{xsd.class.name})!")
+      end
+      xsd = self.parse_schema(xml_doc) if xsd.nil?
       xsd.errors.each do |err|
         err_msg = (/ERROR: /.match(err.message)) ? $' : err.message
         errors << ValidationError.new(:XSD, err.file, err.line, err.column, err_msg, err)
