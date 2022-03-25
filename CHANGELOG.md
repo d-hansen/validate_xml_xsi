@@ -1,3 +1,8 @@
+## v0.3.0
+
+* Change overall structure to make XML_XSI::Schema a normal class (not just a singleton)
+* Allow the Schema to return the xsd document string (so it can be used externally to build a XSD document tree)
+
 ## v0.2.4
 
 * Fix some silly syntax errors

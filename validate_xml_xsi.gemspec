@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name          = "validate_xml_xsi"
-  spec.version       = "0.2.4"
+  spec.version       = "0.3.0"
   spec.authors       = ["David Hansen"]
   spec.email         = ["david@hansen4.net"]
 
