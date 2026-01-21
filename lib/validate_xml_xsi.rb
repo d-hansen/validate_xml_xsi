@@ -35,9 +35,12 @@ class XML_XSI
     end
 
     attr_reader :xsd
-    def initialize(xml_doc)
+    def initialize(xml_doc, parent_xml_doc = nil)
       unless xml_doc.is_a?(Nokogiri::XML::Document)
         raise DocumentError.new("invalid Nokogiri::XML::Document - #{xml_doc.class.name}")
+      end
+      unless parent_xml_doc.nil? || parent_xml_doc.is_a?(Nokogiri::XML::Document)
+        raise DocumentError.new("invalid parent Nokogiri::XML::Document - #{parent_xml_doc.class.name}")
       end
       @document = xml_doc
       ## Determine default/top/root namespace
@@ -45,31 +48,40 @@ class XML_XSI
       @document.namespaces.each do |ns_prefix, ns_href|
         target_ns_href = ns_href if ns_prefix.nil? || ns_prefix.empty? || ns_prefix.eql?('xmlns')
       end
-      raise DocumentError.new("Unable to determine default (xmlns) namespace!") if target_ns_href.nil? || target_ns_href.empty?
+      if target_ns_href.nil? || target_ns_href.empty?
+        raise DocumentError.new("Unable to determine a default (xmlns) namespace!")
+      end
+
+      ## Determine schema locations, optionally inheriting their location declarations from a parent document
+      schema_locations = parent_xml_doc.nil? ? {} : self.class.find_schema_locations(parent_xml_doc)
+      schema_locations.merge!(self.class.find_schema_locations(@document))
+
+      ## If we still don't have a file location for the target namespace, attempt to look for
+      ## one based on the name of the root node (assuming that where the namespace was declared).
+      if !schema_locations.include?(target_ns_href) &&
+          @document.root.namespace.href.eql?(target_ns_href)
+        root_file_xsd = "#{@document.root.name}.xsd"
+        schema_locations[target_ns_href] = root_file_xsd if File.exist?(root_file_xsd)
+      end
+
+      unless schema_locations.include?(target_ns_href)
+        ## XXX - Another possibility would be to default to a file named after the node name declaring the xmlns
+        raise DocumentError.new("Unable to locate a source/file for the default (xmlns) namespace schema!")
+      end
+
       ## Build an all-in-one XSD document that imports all of the separate schema locations
       @xsd = "<?xml version=\"1.0\"?>\n"
       @xsd << "<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n" \
                  "            targetNamespace=\"#{target_ns_href}\"\n" \
                  "            version=\"1.0\">\n"
-      ## Include the default xml namespace
-      schemata_by_ns = {}
-      ## Iterate over all the elements and find any xsi:schemaLocation attributes
-      ## and build a hash of all of the namespaces and locations
-      @document.search('//*[@xsi:schemaLocation]').each do |elem|
-        elem['xsi:schemaLocation'].scan(/(\S+)\s+(\S+)/).each do |ns_set|
-          if ns_loc = schemata_by_ns[ns_set.first]
-            unless ns_loc.eql?(ns_set.last)
-              raise DocumentError.new("MISMATCHING namespace: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
-            end
-          else
-            schemata_by_ns[ns_set.first] = ns_set.last
-          end
-        end
-      end
-      schemata_by_ns.each do |ns_href, ns_file|
-        @xsd << (ns_href.eql?(target_ns_href) ?
-                    "  <xsd:include schemaLocation=\"#{ns_file}\"/>\n" :
-                    "  <xsd:import namespace=\"#{ns_href}\" schemaLocation=\"#{ns_file}\"/>\n")
+
+      ## Minimally we need the target namespace location or we have nothing to include
+      target_ns_file = schema_locations.delete(target_ns_href)
+      @xsd << "  <xsd:include schemaLocation=\"#{target_ns_file}\"/>\n" unless target_ns_file.nil?
+
+      ## Now add imports for the other defined schemaLocations
+      schema_locations.each do |ns_href, ns_file|
+        @xsd << "  <xsd:import namespace=\"#{ns_href}\" schemaLocation=\"#{ns_file}\"/>\n"
       end
       @xsd << "</xsd:schema>\n"
 
@@ -88,6 +100,33 @@ class XML_XSI
         errors << ValidationError.new(:XML, err, fname)
       end
       errors
+    end
+
+    def self.find_schema_locations(xml_doc)
+      ## Include the default xml namespace
+      schema_locations = {}
+
+      ## Determine if the document has reference to the namespace "http://www.w3.org/2001/XMLSchema-instance"
+      ## which is used for defining schemaLocations
+      xsi_prefix = xml_doc.namespaces.invert['http://www.w3.org/2001/XMLSchema-instance']&.delete_prefix('xmlns:')
+
+      ## Iterate over all the elements and find any xsi:schemaLocation attributes
+      ## and build a hash of all of the namespaces and locations
+      unless xsi_prefix.nil?
+        xsi_loc = "#{xsi_prefix}:schemaLocation"
+        xml_doc.search("//*[@#{xsi_loc}]").each do |elem|
+          elem[xsi_loc].scan(/(\S+)\s+(\S+)/).each do |ns_set|
+            if ns_loc = schema_locations[ns_set.first]
+              unless ns_loc.eql?(ns_set.last)
+                raise DocumentError.new("MISMATCHING namespace: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
+              end
+            else
+              schema_locations[ns_set.first] = ns_set.last
+            end
+          end
+        end
+      end
+      schema_locations
     end
   end
 end
