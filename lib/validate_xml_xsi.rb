@@ -1,6 +1,19 @@
 #!/usr/bin/env ruby
 require 'nokogiri'
 
+## Monkey-patch Nokogiri::XML::SyntaxError::aggregate to also keep the ENTIRE LIST of errors - ARGH!
+Nokogiri::XML::SyntaxError.class_eval do
+  class << self
+    alias_method :orig_aggregate, :aggregate
+    def aggregate(errors)
+      agg_err = orig_aggregate(errors)
+      agg_err.instance_variable_set(:@aggregate, errors)
+      agg_err.define_singleton_method(:aggregate) { instance_variable_get(:@aggregate) }
+      agg_err
+    end
+  end
+end
+
 class XML_XSI
   def self.parse(obj)
     filename = nil
@@ -11,8 +24,49 @@ class XML_XSI
     xml_doc
   end
 
+  def self.find_schema_locations(xml_doc)
+    ## Include the default xml namespace
+    schema_locations = {}
+
+    ## Determine if the document has reference to the namespace "http://www.w3.org/2001/XMLSchema-instance"
+    ## which is used for defining schemaLocations
+    xsi_prefix = xml_doc.namespaces.invert['http://www.w3.org/2001/XMLSchema-instance']&.delete_prefix('xmlns:')
+
+    ## Iterate over all the elements and find any xsi:schemaLocation attributes
+    ## and build a hash of all of the namespaces and locations
+    unless xsi_prefix.nil?
+      xsi_loc = "#{xsi_prefix}:schemaLocation"
+      xml_doc.search("//*[@#{xsi_loc}]").each do |elem|
+        elem[xsi_loc].scan(/(\S+)\s+(\S+)/).each do |ns_set|
+          if ns_loc = schema_locations[ns_set.first]
+            unless ns_loc.eql?(ns_set.last)
+              raise DocumentError.new("MISMATCHING namespace: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
+            end
+          else
+            schema_locations[ns_set.first] = ns_set.last
+          end
+        end
+      end
+    end
+    schema_locations
+  end
+
   class Schema
     class DocumentError < StandardError; end
+    class NamespaceError < StandardError
+      def initialize
+        super("Unable to determine default/target (xmlns) namespace!")
+      end
+    end
+    class LocationError < StandardError
+      def initialize(ns_href = nil)
+        msg = ns_href.nil? ?
+          "No schema locations defined or provided" :
+          "No location for the default (xmlns) namespace schema: #{ns_href}"
+        super(msg)
+      end
+    end
+    ## Unified Error reportign class for both XSD and XML errors
     class ValidationError < StandardError
       attr_reader :type, :file, :line, :column, :level, :message, :description, :error
       def initialize(type, err, filename = nil)
@@ -34,50 +88,43 @@ class XML_XSI
       end
     end
 
+    class Erroneous
+      attr_reader :errors
+      def initialize(ex)
+        errs = ex.respond_to?(:aggregate) ? ex.aggregate : [ex]
+        @errors = errs.map { |err| ValidationError.new(:XSD, err) }
+      end
+    end
+
     attr_reader :xsd
-    def initialize(xml_doc, parent_xml_doc = nil)
+    def initialize(xml_doc, schema_locations = {})
+      raise ArgumentError.new("Provided schema locations must be a Hash") unless schema_locations.is_a?(Hash)
       unless xml_doc.is_a?(Nokogiri::XML::Document)
         raise DocumentError.new("invalid Nokogiri::XML::Document - #{xml_doc.class.name}")
       end
-      unless parent_xml_doc.nil? || parent_xml_doc.is_a?(Nokogiri::XML::Document)
-        raise DocumentError.new("invalid parent Nokogiri::XML::Document - #{parent_xml_doc.class.name}")
-      end
       @document = xml_doc
       ## Determine default/top/root namespace
-      target_ns_href = nil
+      @ns_href = nil
       @document.namespaces.each do |ns_prefix, ns_href|
-        target_ns_href = ns_href if ns_prefix.nil? || ns_prefix.empty? || ns_prefix.eql?('xmlns')
+        @ns_href = ns_href if ns_prefix.nil? || ns_prefix.empty? || ns_prefix.eql?('xmlns')
       end
-      if target_ns_href.nil? || target_ns_href.empty?
-        raise DocumentError.new("Unable to determine a default (xmlns) namespace!")
-      end
+      raise NamespaceError.new if @ns_href.nil? || @ns_href.empty?
 
-      ## Determine schema locations, optionally inheriting their location declarations from a parent document
-      schema_locations = parent_xml_doc.nil? ? {} : self.class.find_schema_locations(parent_xml_doc)
-      schema_locations.merge!(self.class.find_schema_locations(@document))
+      ## Determine schema locations found in the source document
+      schema_locations.merge!(XML_XSI::find_schema_locations(@document))
 
-      ## If we still don't have a file location for the target namespace, attempt to look for
-      ## one based on the name of the root node (assuming that where the namespace was declared).
-      if !schema_locations.include?(target_ns_href) &&
-          @document.root.namespace.href.eql?(target_ns_href)
-        root_file_xsd = "#{@document.root.name}.xsd"
-        schema_locations[target_ns_href] = root_file_xsd if File.exist?(root_file_xsd)
-      end
-
-      unless schema_locations.include?(target_ns_href)
-        ## XXX - Another possibility would be to default to a file named after the node name declaring the xmlns
-        raise DocumentError.new("Unable to locate a source/file for the default (xmlns) namespace schema!")
-      end
+      raise LocationError.new if schema_locations.empty?
+      raise LocationError.new(@ns_href) unless schema_locations.include?(@ns_href)
 
       ## Build an all-in-one XSD document that imports all of the separate schema locations
       @xsd = "<?xml version=\"1.0\"?>\n"
       @xsd << "<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n" \
-                 "            targetNamespace=\"#{target_ns_href}\"\n" \
-                 "            version=\"1.0\">\n"
+              "            targetNamespace=\"#{@ns_href}\"\n" \
+              "            version=\"1.0\">\n"
 
       ## Minimally we need the target namespace location or we have nothing to include
-      target_ns_file = schema_locations.delete(target_ns_href)
-      @xsd << "  <xsd:include schemaLocation=\"#{target_ns_file}\"/>\n" unless target_ns_file.nil?
+      @xsi_file = schema_locations.delete(@ns_href)
+      @xsd << "  <xsd:include schemaLocation=\"#{@xsi_file}\"/>\n" unless @xsi_file.nil?
 
       ## Now add imports for the other defined schemaLocations
       schema_locations.each do |ns_href, ns_file|
@@ -86,47 +133,23 @@ class XML_XSI
       @xsd << "</xsd:schema>\n"
 
       ## Create the Schema objects
-      @schema = Nokogiri::XML::Schema.new(@xsd)
+      begin
+        @schema = Nokogiri::XML::Schema.new(@xsd)
+      rescue Nokogiri::XML::SyntaxError => ex
+        ## Trap the errors so we can finish initialization and then
+        ## report the errors in a sane manner
+        @schema = Erroneous.new(ex)
+      end
     end
+
+    def errors; @schema.errors; end
 
     def validate
-      errors = []
-      @schema.errors.each do |err|
-        errors << ValidationError.new(:XSD, err)
-      end
       errs = @schema.validate(@document)
-      errs.each do |err|
-        fname = (err.file.nil?) ? @document.filename : err.file
-        errors << ValidationError.new(:XML, err, fname)
+      errs.map do |err|
+        fname = err.file.nil? ? @document.filename : err.file
+        ValidationError.new(:XML, err, fname)
       end
-      errors
-    end
-
-    def self.find_schema_locations(xml_doc)
-      ## Include the default xml namespace
-      schema_locations = {}
-
-      ## Determine if the document has reference to the namespace "http://www.w3.org/2001/XMLSchema-instance"
-      ## which is used for defining schemaLocations
-      xsi_prefix = xml_doc.namespaces.invert['http://www.w3.org/2001/XMLSchema-instance']&.delete_prefix('xmlns:')
-
-      ## Iterate over all the elements and find any xsi:schemaLocation attributes
-      ## and build a hash of all of the namespaces and locations
-      unless xsi_prefix.nil?
-        xsi_loc = "#{xsi_prefix}:schemaLocation"
-        xml_doc.search("//*[@#{xsi_loc}]").each do |elem|
-          elem[xsi_loc].scan(/(\S+)\s+(\S+)/).each do |ns_set|
-            if ns_loc = schema_locations[ns_set.first]
-              unless ns_loc.eql?(ns_set.last)
-                raise DocumentError.new("MISMATCHING namespace: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
-              end
-            else
-              schema_locations[ns_set.first] = ns_set.last
-            end
-          end
-        end
-      end
-      schema_locations
     end
   end
 end
