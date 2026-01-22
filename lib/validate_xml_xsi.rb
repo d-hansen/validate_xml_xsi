@@ -40,7 +40,7 @@ class XML_XSI
         elem[xsi_loc].scan(/(\S+)\s+(\S+)/).each do |ns_set|
           if ns_loc = schema_locations[ns_set.first]
             unless ns_loc.eql?(ns_set.last)
-              raise DocumentError.new("MISMATCHING namespace: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
+              raise Schema::DocumentError.new("MISMATCHING namespace: #{ns_set.first} -> #{ns_loc} VS #{ns_set.last}")
             end
           else
             schema_locations[ns_set.first] = ns_set.last
@@ -59,7 +59,9 @@ class XML_XSI
       end
     end
     class LocationError < StandardError
+      attr_reader :ns_href
       def initialize(ns_href = nil)
+        @ns_href = ns_href
         msg = ns_href.nil? ?
           "No schema locations defined or provided" :
           "No location for the default (xmlns) namespace schema: #{ns_href}"
